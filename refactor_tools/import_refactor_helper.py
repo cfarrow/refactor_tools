@@ -6,6 +6,10 @@ import re
 IMPORT_FROM_PATTERN_TEMPLATE = "from {}(.* import .+)"
 IMPORT_PATTERN_TEMPLATE = "import {}(.*)"
 
+# IDEA full pep8 checking
+# FIXME Rename relative imports
+# FIXME use logging, not __str__
+
 
 def make_import_regexes(module_name):
     import_from_pattern = IMPORT_FROM_PATTERN_TEMPLATE.format(module_name)
@@ -119,12 +123,12 @@ class ImportFinderRE(CollectingImportWalker):
             self.found_modules.add(module_path)
 
 
-# FIXME Add warnings about long import lines
-# FIXME Rename relative imports
-# FIXME use logging
-
-
 class ImportRenamer(BaseImportWalker):
+    """Rename imports from a move.
+
+    This does not handle relative imports.
+
+    """
 
     def __init__(self, module_name, new_module_name):
         super(ImportRenamer, self).__init__(module_name)
@@ -153,7 +157,7 @@ class ImportRenamer(BaseImportWalker):
         Check for import statement in source
 
         """
-        return self._do_check(module_path, source,
+        return self._check(module_path, source,
                 self.import_regex, self.import_repl)
 
     def _check_import_from(self, module_path, source):
@@ -161,29 +165,43 @@ class ImportRenamer(BaseImportWalker):
         Check for import-from statement in source
 
         """
-        return self._do_check(module_path, source,
+        return self._check(module_path, source,
                 self.import_from_regex, self.import_from_repl)
 
-    def _do_check(self, module_path, source, regex, repl):
+    def _check(self, module_path, source, regex, repl):
         output = module_path
 
-        # Check for pep8
-        matches = False
-        for match in regex.finditer(source):
-            matches = True
-            new_line = match.expand(repl)
-            if len(new_line) > 79:
-                output = "pep8: {}".format(module_path)
-
-        if not matches:
+        if not regex.search(source):
             return
 
-        if not output:
+        # Check for pep8
+        if self._meets_pep8(source, regex, repl):
             output = module_path
+        else:
+            output = "pep8: {}".format(module_path)
 
         self.output.append(output)
 
         return regex.sub(repl, source)
+
+    def _meets_pep8(self, source, regex, repl):
+        """
+        Checks whether modified imports will meet pep8.
+
+        This assumes matches have been found.
+
+        Returns True, False or None if there are no matches.
+
+        """
+        retval = None
+        for match in regex.finditer(source):
+            retval = True
+            new_line = match.expand(repl)
+            if len(new_line) > 79:
+                retval = False
+                break
+
+        return retval
 
     def __str__(self):
         return "\n".join(self.output)
